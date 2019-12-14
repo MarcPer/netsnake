@@ -14,7 +14,7 @@ object Game {
 object GameOutput {
   trait GameResponse
   case class GameState(playerStates: Map[InetSocketAddress, PlayerState], apple: Point) extends GameResponse
-  case class PlayerState(score: Int, snake: Snake, var alive: Boolean)
+  case class PlayerState(var score: Int, snake: Snake, var alive: Boolean)
   def initialPlayerState: PlayerState = {
     val initSnake = Snake(Point(20, 20) :: Point(21, 20) :: Point(22, 20) :: Point(23, 20) :: Point(24, 20) :: Point(25, 20) :: Nil, Left)
     PlayerState(0, initSnake, true)
@@ -50,8 +50,8 @@ case object Left extends LeftRight
 case class Snake(var pos: List[Point], var direction: Direction)
 
 class Game extends Actor with ActorLogging {
-  val height = 32
-  val width = 32
+  val height = 40
+  val width = 40
   import GameInput._
   private var players = Map[InetSocketAddress, PlayerState]() // Maps remote address to index in snakes and scores Lists
   private var deadPlayers = Set[InetSocketAddress]()
@@ -89,7 +89,7 @@ class Game extends Actor with ActorLogging {
       self ! GameOver
     else {
       broadcastState
-      Thread.sleep(1000)
+      Thread.sleep(100)
       self ! Cycle
     }
   }
@@ -133,7 +133,7 @@ class Game extends Actor with ActorLogging {
       (id, state) <- players
     } yield(id, state.snake.pos.head)
     heads.foldLeft(Set[InetSocketAddress]()) { case (out, (id, head)) =>
-      if (head.x < 0 || head.x > width || head.y < 0 || head.y > height) out + id else out
+      if (head.x < 0 || head.x >= width || head.y < 0 || head.y >= height) out + id else out
     }
   }
 
@@ -153,13 +153,14 @@ class Game extends Actor with ActorLogging {
 
   def move(state: GameOutput.PlayerState) = {
     val newPos = state.snake.direction match {
-      case Up => Point(0, 1) + state.snake.pos.head
-      case Down => Point(0, -1) + state.snake.pos.head
+      case Up => Point(0, -1) + state.snake.pos.head
+      case Down => Point(0, 1) + state.snake.pos.head
       case Right => Point(1, 0) + state.snake.pos.head
       case Left => Point(-1, 0) + state.snake.pos.head
     }
     if (newPos == apple.getOrElse(Point(-1, -1))) {
       apple = None
+      state.score += 1
       state.snake.pos = newPos :: state.snake.pos
     }
     else

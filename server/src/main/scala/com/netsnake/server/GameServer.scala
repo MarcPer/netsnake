@@ -49,9 +49,6 @@ class GameServer(address: InetSocketAddress) extends Actor with ActorLogging {
         case _ =>
           log.info("Invalid command received")
       }
-
-      // echo
-      client ! Udp.Send(ByteString(data.utf8String.trim), remote)
     case Udp.Unbind =>
       log.info("Unbind received")
       client ! Udp.Unbind
@@ -82,7 +79,7 @@ object ServerResponse {
   def fromGameOutput(cmd: GameResponse): Map[InetSocketAddress, String] = cmd match {
     case GameState(playerStates, apple) => for {
       (remote, ps) <- playerStates
-    } yield (remote, s"a${if (ps.alive) 1 else 0}|${ps.score}|${serializeApple(apple)}|${serializeSnake(ps.snake)}\n")
+    } yield (remote, s"${serializeApple(apple)}|a${if (ps.alive) 1 else 0}|${ps.score}|${serializeSnake(ps.snake)}\n")
   }
 
   def serializeSnake(s: Snake): String = {
@@ -97,8 +94,8 @@ object ServerResponse {
       val nextPos = (p - lastPos) match {
         case Point(1, 0) => "r"
         case Point(-1, 0) => "l"
-        case Point(0, 1) => "u"
-        case Point(0, -1) => "d"
+        case Point(0, 1) => "d"
+        case Point(0, -1) => "u"
         case _ => "i"
       }
         (p, s"${acc}${nextPos}")
@@ -114,37 +111,3 @@ object Sender {
   def props(remote: InetSocketAddress): Props = Props(new GameServer(remote))
 }
 
-object BiMap {
-  private[BiMap] trait MethodDistinctor
-  implicit object MethodDistinctor extends MethodDistinctor
-}
-
-case class BiMap[X, Y](var map: Map[X, Y]) {
-  def this(tuples: (X,Y)*) = this(tuples.toMap)
-  private var reverseMap = map map (_.swap)
-  require(map.size == reverseMap.size, "no 1 to 1 relation")
-  def apply(x: X): Y = map(x)
-  def apply(y: Y)(implicit d: BiMap.MethodDistinctor): X = reverseMap(y)
-  val domain = map.keys
-  val codomain = reverseMap.keys
-  def values = map.values
-  def keys = map.keys
-
-  def ++(other: Map[X,Y]) = {
-    this.map = this.map ++ other
-    val otherReverse = other map (_.swap)
-    this.reverseMap = this.reverseMap ++ otherReverse
-  }
-
-  def --(other: Map[X,Y]) = {
-    this.map = this.map -- other.keys
-    this.reverseMap = this.reverseMap -- other.values
-  }
-
-  def contains(x: X): Boolean = map.contains(x)
-  def contains(y: Y)(implicit d: BiMap.MethodDistinctor): Boolean = reverseMap.contains(y)
-}
-
-//val biMap = new BiMap(1 -> "A", 2 -> "B")
-//println(biMap(1)) // A
-//println(biMap("B")) // 2
