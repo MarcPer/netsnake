@@ -1,5 +1,7 @@
 require 'gosu'
 require 'socket'
+require_relative 'client'
+require_relative 'selectable_queue'
 
 class Game < Gosu::Window
   HEAD_COLOR = Gosu::Color::GREEN
@@ -9,13 +11,22 @@ class Game < Gosu::Window
   def initialize
     super 40 * SCALING_FACTOR, 40 * SCALING_FACTOR
     self.caption = "Net snake Ruby"
+    @font = Gosu::Font.new(25)
     @snake = []
-    @socket = UDPSocket.new
-    @socket.connect("127.0.0.1", 3000)
-    @socket.send('s', 0)
+    @server_queue = SelectableQueue.new # holds state received from server; read by game
+    @input_queue = SelectableQueue.new # holds input to be sent to server; read by client
+
+    @server_thread = Thread.new do
+      client = Client.new(@server_queue, @input_queue, "127.0.0.1", 3000)
+      client.start
+    end
   end
 
   def draw
+    if @game_over
+      @font.draw("Game over", 15 * SCALING_FACTOR, 20 * SCALING_FACTOR, 1, 2.0, 2.0, Gosu::Color::YELLOW)
+    end
+    @font.draw("Score: #{@score}", 10, 10, 1, 1.0, 1.0, Gosu::Color::YELLOW)
     @snake.each_with_index do |seg, idx|
       next if seg.nil? || seg.empty?
       kind = idx == 0 ? :head : :tail
@@ -26,11 +37,13 @@ class Game < Gosu::Window
 
   def update
     return if @game_over
-    data = @socket.recvfrom(30)[0]
-    puts data
-    new_direction = read_input
-    @socket.send(new_direction, 0) if new_direction
-    read_state(data)
+    data = @server_queue.empty? ? nil : @server_queue.pop
+    @new_direction ||= read_input
+    if @new_direction && @input_queue.empty?
+      @input_queue << @new_direction
+      @new_direction = nil
+    end
+    read_state(data) if data
   end
 
   def draw_snake_segment(x, y, kind = :tail)
@@ -44,6 +57,7 @@ class Game < Gosu::Window
   end
 
   def draw_apple
+    return if [@apple_x, @apple_y].none?
     Gosu.draw_quad(
       @apple_x * SCALING_FACTOR, @apple_y * SCALING_FACTOR, Gosu::Color::RED,
       (@apple_x + 1) * SCALING_FACTOR, @apple_y * SCALING_FACTOR, Gosu::Color::RED,
