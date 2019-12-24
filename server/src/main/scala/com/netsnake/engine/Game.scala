@@ -12,12 +12,11 @@ object Game {
 }
 
 object GameOutput {
-  trait GameResponse
-  case class GameState(playerStates: Map[InetSocketAddress, PlayerState], apple: Point) extends GameResponse
-  case class PlayerState(var score: Int, snake: Snake, var alive: Boolean)
-  def initialPlayerState: PlayerState = {
+  case class GameState(playerStates: Map[InetSocketAddress, PlayerState], apple: Point)
+  case class PlayerState(var score: Int, snake: Snake, var state: SnakeState)
+  def initialPlayerState(state: SnakeState): PlayerState = {
     val initSnake = Snake(Point(20, 20) :: Point(21, 20) :: Point(22, 20) :: Point(23, 20) :: Point(24, 20) :: Point(25, 20) :: Nil, Left)
-    PlayerState(0, initSnake, true)
+    PlayerState(0, initSnake, state)
   }
   def initialGameState: GameState = GameState(Map(), Point(0,0))
 }
@@ -35,7 +34,9 @@ object GameInput {
   case class MoveCommand(playerId: InetSocketAddress, dir: Direction) extends GameCommand
   case object Invalid extends GameCommand
   case class Start(playerId: InetSocketAddress) extends GameCommand
-  case class AddPlayer(playerId: InetSocketAddress) extends GameCommand
+  case class Restart(playerId: InetSocketAddress) extends GameCommand
+  case class Join(playerId: InetSocketAddress) extends GameCommand
+  case class Quit(playerId: InetSocketAddress) extends GameCommand
 }
 
 
@@ -48,17 +49,32 @@ case object Right extends LeftRight
 case object Left extends LeftRight
 
 case class Snake(var pos: List[Point], var direction: Direction)
+trait SnakeState
+case object Waiting extends SnakeState
+case object Running extends SnakeState
+case object Dead extends SnakeState
 
 class Game extends Actor with ActorLogging {
   val height = 40
   val width = 40
   import GameInput._
   private var players = Map[InetSocketAddress, PlayerState]() // Maps remote address to index in snakes and scores Lists
-  private var deadPlayers = Set[InetSocketAddress]()
+  private var quitPlayers = Set[InetSocketAddress]()
   private var apple: Option[Point] = Some(newApple)
 
   def active: Receive = {
     case Cycle => cycleGame
+    case Join(playerId) if (!players.contains(playerId)) =>
+      players = addPlayer(playerId, players, Running)
+      log.info(s"Num. players: ${players.size}")
+    case Start(playerId) if (!players.contains(playerId)) =>
+      players = addPlayer(playerId, players, Running)
+      log.info(s"Num. players: ${players.size}")
+    case Restart(playerId) if (players.contains(playerId) && players(playerId).state == Dead) =>
+      players -= playerId
+      players = addPlayer(playerId, players, Running)
+    case Quit(playerId) if (players.contains(playerId)) =>
+      quitPlayer(playerId)
     case MoveCommand(pid, dir) =>
       val newDir = changeDirection(players(pid).snake.direction, dir)
       players(pid).snake.direction = newDir
@@ -67,8 +83,16 @@ class Game extends Actor with ActorLogging {
   }
 
   def inactive: Receive = {
+    case Join(playerId) =>
+      players = addPlayer(playerId, players, Waiting)
+      log.info(s"Num. players: ${players.size}")
     case Start(playerId) =>
-      players = addPlayer(playerId, players)
+      if (players.contains(playerId)) {
+        players(playerId).state = Running
+      } else {
+        players = addPlayer(playerId, players, Running)
+      }
+      log.info(s"Num. players: ${players.size}")
       context.become(active)
       self ! Cycle
   }
@@ -76,7 +100,7 @@ class Game extends Actor with ActorLogging {
   def receive = inactive
 
   def cycleGame: Unit = {
-    for { p <- deadPlayers } { players -= p}
+    for { p <- quitPlayers } { players -= p}
     for { p <- players.values } move(p)
     for { p <- collidedPlayers(players) } killPlayer(p)
     for { p <- outOfBoundsPlayers(players) } killPlayer(p)
@@ -94,14 +118,17 @@ class Game extends Actor with ActorLogging {
     }
   }
 
-  def addPlayer(id: InetSocketAddress, players: Map[InetSocketAddress, PlayerState]) =
-    players + (id -> GameOutput.initialPlayerState)
+  def addPlayer(id: InetSocketAddress, players: Map[InetSocketAddress, PlayerState], state: SnakeState) =
+    players + (id -> GameOutput.initialPlayerState(state))
+
+  def quitPlayer(id: InetSocketAddress) = {
+    quitPlayers = quitPlayers + id
+  }
 
   // Mark player as dead, but don't immediately remove from players list,
   // so they still get one broadcast informing they are dead.
   def killPlayer(id: InetSocketAddress) = {
-    players(id).alive = false
-    deadPlayers = deadPlayers + id
+    players(id).state = Dead
   }
 
   def changeDirection(currDir: Direction, dir: Direction): Direction = (currDir, dir) match {
@@ -152,19 +179,22 @@ class Game extends Actor with ActorLogging {
   }
 
   def move(state: GameOutput.PlayerState) = {
-    val newPos = state.snake.direction match {
-      case Up => Point(0, -1) + state.snake.pos.head
-      case Down => Point(0, 1) + state.snake.pos.head
-      case Right => Point(1, 0) + state.snake.pos.head
-      case Left => Point(-1, 0) + state.snake.pos.head
+    if (state.state == Dead) state.snake.pos
+    else {
+      val newPos = state.snake.direction match {
+        case Up => Point(0, -1) + state.snake.pos.head
+        case Down => Point(0, 1) + state.snake.pos.head
+        case Right => Point(1, 0) + state.snake.pos.head
+        case Left => Point(-1, 0) + state.snake.pos.head
+      }
+      if (newPos == apple.getOrElse(Point(-1, -1))) {
+        apple = None
+        state.score += 1
+        state.snake.pos = newPos :: state.snake.pos
+      }
+      else
+        state.snake.pos = newPos :: state.snake.pos.dropRight(1)
     }
-    if (newPos == apple.getOrElse(Point(-1, -1))) {
-      apple = None
-      state.score += 1
-      state.snake.pos = newPos :: state.snake.pos
-    }
-    else
-      state.snake.pos = newPos :: state.snake.pos.dropRight(1)
   }
 
   def broadcastState: Unit = {

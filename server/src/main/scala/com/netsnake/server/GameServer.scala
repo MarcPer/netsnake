@@ -5,8 +5,8 @@ import java.net.InetSocketAddress
 import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Props}
 import akka.io.{IO, Udp}
 import akka.util.ByteString
-import com.netsnake.engine.GameOutput.{GameResponse, GameState}
-import com.netsnake.engine.{Game, GameOutput, Point, Snake, Up, Down, Left, Right}
+import com.netsnake.engine.GameOutput.GameState
+import com.netsnake.engine.{Game, GameOutput, Point, Snake, SnakeState, Waiting, Running, Dead, Up, Down, Left, Right}
 
 object GameServer extends App {
   val localAddress: InetSocketAddress = new InetSocketAddress("127.0.0.1", 3000)
@@ -43,6 +43,12 @@ class GameServer(address: InetSocketAddress) extends Actor with ActorLogging {
       cmd match {
         case start: Start =>
           game ! start
+        case join: Join =>
+          game ! join
+        case quit: Quit =>
+          game ! quit
+        case restart: Restart =>
+          game ! restart
         case mcmd: MoveCommand =>
           log.info("Move command received")
           game ! mcmd
@@ -54,10 +60,10 @@ class GameServer(address: InetSocketAddress) extends Actor with ActorLogging {
       client ! Udp.Unbind
     case Udp.Unbound => context.stop(self)
     case s: GameOutput.GameState =>
-      val stateMap = ServerResponse.fromGameOutput(s)
+      val (remotes, state) = ServerResponse.fromGameOutput(s)
       for {
-        (remote, playerState) <- stateMap
-      } client ! Udp.Send(ByteString(playerState), remote)
+        (remote, idx) <- remotes
+      } client ! Udp.Send(ByteString(s"${idx}_${state}"), remote)
   }
 }
 
@@ -66,6 +72,9 @@ object ServerCommand {
   import com.netsnake.engine.GameInput._
   def fromMessage(msg: String, remote: InetSocketAddress): GameCommand = msg match {
     case "s" => Start(remote)
+    case "j" => Join(remote)
+    case "q" => Quit(remote)
+    case "r" => Restart(remote)
     case "mu" => MoveCommand(remote, Up)
     case "md" => MoveCommand(remote, Down)
     case "ml" => MoveCommand(remote, Left)
@@ -76,10 +85,20 @@ object ServerCommand {
 }
 
 object ServerResponse {
-  def fromGameOutput(cmd: GameResponse): Map[InetSocketAddress, String] = cmd match {
-    case GameState(playerStates, apple) => for {
-      (remote, ps) <- playerStates
-    } yield (remote, s"${serializeApple(apple)}|a${if (ps.alive) 1 else 0}|${ps.score}|${serializeSnake(ps.snake)}\n")
+  val globalSep = "#"
+  val playerSep = "|"
+  def fromGameOutput(gs: GameState): (List[(InetSocketAddress, Int)], String) = {
+    val remotes = gs.playerStates.foldLeft(Nil: List[InetSocketAddress]) {
+      (out, ps) => out :+ ps._1 
+    }
+    val state = gs.playerStates.foldLeft(s"${gs.playerStates.size}${globalSep}${serializeApple(gs.apple)}") {
+      (out, pStates) => 
+        pStates match {
+          case (_, ps) => s"${out}${globalSep}${serializeSnakeState(ps.state)}${playerSep}${ps.score}${playerSep}${serializeSnake(ps.snake)}"
+          case _ => out
+        }        
+    }
+    (remotes.zipWithIndex, s"$state\n")
   }
 
   def serializeSnake(s: Snake): String = {
@@ -100,6 +119,13 @@ object ServerResponse {
       }
         (p, s"${acc}${nextPos}")
     }._2
+  }
+
+  def serializeSnakeState(s: SnakeState): Char = s match {
+    case Dead => 'd'
+    case Running => 'r'
+    case Waiting => 'w'
+    case _ => 'd'
   }
 
   def serializeApple(a: Point): String = {
