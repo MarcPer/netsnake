@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-class Client
+class UdpClient
   def initialize(server_queue, input_queue, server_addr, server_port)
     @server_queue = server_queue
     @input_queue = input_queue

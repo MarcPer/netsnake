@@ -1,27 +1,29 @@
 require 'gosu'
 require 'socket'
-require_relative 'client'
+require_relative 'udp_client'
 require_relative 'selectable_queue'
 
-class Game < Gosu::Window
+class Engine < Gosu::Window
   HEAD_COLOR = Gosu::Color::GREEN
   TAIL_COLOR = Gosu::Color::BLUE
   HEAD_COLOR_OTHER = Gosu::Color::FUCHSIA
   TAIL_COLOR_OTHER = Gosu::Color::GRAY
   SCALING_FACTOR = 20
 
-  def initialize
+  def initialize(host, port = 3000)
     super 40 * SCALING_FACTOR, 40 * SCALING_FACTOR
     self.caption = "Net snake Ruby"
     @font = Gosu::Font.new(25)
     @snake = []
+    @score = 0
     @other_snakes = []
+    @other_scores = []
     @server_queue = SelectableQueue.new # holds state received from server; read by game
     @input_queue = SelectableQueue.new # holds input to be sent to server; read by client
 
     Thread.abort_on_exception = true
     @server_thread = Thread.new do
-      client = Client.new(@server_queue, @input_queue, "127.0.0.1", 3000)
+      client = UdpClient.new(@server_queue, @input_queue, host, port)
       client.start
     end
   rescue
@@ -31,10 +33,13 @@ class Game < Gosu::Window
 
   def draw
     if @game_over
-      @font.draw("Game over", 15 * SCALING_FACTOR, 20 * SCALING_FACTOR, 1, 2.0, 2.0, Gosu::Color::YELLOW)
-      @font.draw("Press space to restart", 14 * SCALING_FACTOR, 22 * SCALING_FACTOR, 1, 1.2, 1.2, Gosu::Color::YELLOW)
+      @font.draw_text("Game over", 15 * SCALING_FACTOR, 20 * SCALING_FACTOR, 1, 2.0, 2.0, Gosu::Color::YELLOW)
+      @font.draw_text("Press space to restart", 14 * SCALING_FACTOR, 22 * SCALING_FACTOR, 1, 1.2, 1.2, Gosu::Color::YELLOW)
     end
-    @font.draw("Score: #{@score}", 10, 10, 1, 1.0, 1.0, Gosu::Color::YELLOW)
+    @font.draw_text("Score: #{@score}", 10, 10, 1, 1.0, 1.0, Gosu::Color::YELLOW)
+    @other_scores.each_with_index do |score, idx|
+      @font.draw_text("Score: #{@score}", 10, 10 + idx, 1, 1.0, 1.0, Gosu::Color::YELLOW)
+    end
     draw_snake(@snake, true)
     @other_snakes.each { |s| draw_snake(s, false) }
     draw_apple
@@ -53,7 +58,6 @@ class Game < Gosu::Window
   end
 
   def update
-    # return if @game_over
     data = @server_queue.empty? ? nil : @server_queue.pop
     @new_direction = read_input
     if @new_direction && @input_queue.empty?
@@ -90,7 +94,6 @@ class Game < Gosu::Window
   end
 
   def read_state(data)
-    puts data
     state = data.split('#')
     @other_snakes = []
     curr_player, num_players = state.shift.split('_').map(&:to_i)
@@ -107,7 +110,6 @@ class Game < Gosu::Window
     end
     @game_over = player_state[0] == 'd'
     @score = player_state[1].to_i
-    return if @game_over
     @snake = build_snake(player_state[2], true) || []
   end
 
@@ -174,9 +176,10 @@ class Game < Gosu::Window
   end
 end
 
-game = Game.new
-Signal.trap("INT") do
-  puts 'Terminating'
-  game.finish
-end
-game.show
+# game = Game.new(ARGV.shift || "127.0.0.1")
+# Signal.trap("INT") do
+#   puts 'Terminating'
+#   game.finish
+# end
+# game.show
+# game.finish

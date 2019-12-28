@@ -1,0 +1,25 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'thor'
+require_relative './engine'
+
+class Game < Thor
+  desc "start", "Connects to a game server and starts a match."
+  method_option :host, aliases: "-h", desc: "Host where game server is running", default: "127.0.0.1", type: :string
+  method_option :port, aliases: "-p", desc: "Port where game server is running", default: 3000, type: :numeric
+  def start
+    remote = options[:host]
+    port = options[:port]
+    puts "Connecting to #{remote}:#{port}"
+    engine = Engine.new(remote, port)
+    Signal.trap("INT") do
+      puts 'Terminating'
+      engine.finish
+    end
+    engine.show
+    engine.finish
+  end
+end
+
+Game.start
