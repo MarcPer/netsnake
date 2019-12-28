@@ -15,7 +15,7 @@ object GameOutput {
   case class GameState(playerStates: Map[InetSocketAddress, PlayerState], apple: Point)
   case class PlayerState(var score: Int, snake: Snake, var state: SnakeState)
   def initialPlayerState(state: SnakeState): PlayerState = {
-    val initSnake = Snake(Point(20, 20) :: Point(21, 20) :: Point(22, 20) :: Point(23, 20) :: Point(24, 20) :: Point(25, 20) :: Nil, Left)
+    val initSnake = Snake(Point(20, 20) :: Point(21, 20) :: Point(22, 20) :: Point(23, 20) :: Point(24, 20) :: Point(25, 20) :: Nil, Left, 0)
     PlayerState(0, initSnake, state)
   }
   def initialGameState: GameState = GameState(Map(), Point(0,0))
@@ -48,7 +48,7 @@ case object Down extends UpDown
 case object Right extends LeftRight
 case object Left extends LeftRight
 
-case class Snake(var pos: List[Point], var direction: Direction)
+case class Snake(var pos: List[Point], var direction: Direction, var grow: Int)
 trait SnakeState
 case object Waiting extends SnakeState
 case object Running extends SnakeState
@@ -113,7 +113,7 @@ class Game extends Actor with ActorLogging {
       self ! GameOver
     else {
       broadcastState
-      Thread.sleep(100)
+      Thread.sleep(200)
       self ! Cycle
     }
   }
@@ -190,10 +190,14 @@ class Game extends Actor with ActorLogging {
       if (newPos == apple.getOrElse(Point(-1, -1))) {
         apple = None
         state.score += 1
-        state.snake.pos = newPos :: state.snake.pos
+        state.snake.grow += 3
       }
+      state.snake.pos = newPos :: state.snake.pos
+
+      if (state.snake.grow <= 0)
+        state.snake.pos = state.snake.pos.dropRight(1)
       else
-        state.snake.pos = newPos :: state.snake.pos.dropRight(1)
+        state.snake.grow -= 1
     }
   }
 

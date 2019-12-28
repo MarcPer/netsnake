@@ -1,6 +1,7 @@
 package com.netsnake.server
 
-import java.net.InetSocketAddress
+import java.net.{NetworkInterface, InetSocketAddress}
+import collection.JavaConverters._
 
 import akka.actor.{Actor, ActorLogging, ActorRef, ActorSystem, Props}
 import akka.io.{IO, Udp}
@@ -9,7 +10,13 @@ import com.netsnake.engine.GameOutput.GameState
 import com.netsnake.engine.{Game, GameOutput, Point, Snake, SnakeState, Waiting, Running, Dead, Up, Down, Left, Right}
 
 object GameServer extends App {
-  val localAddress: InetSocketAddress = new InetSocketAddress("127.0.0.1", 3000)
+  val interfaceName = "wlo1"
+  val networkInterface = NetworkInterface.getByName(interfaceName)
+  val inetAddresses = networkInterface.getInetAddresses()
+  val localAddress = inetAddresses.asScala.find(_.isSiteLocalAddress).map(_.getHostAddress) match {
+    case Some(addr) => new InetSocketAddress(addr, 3000)
+    case _ => new InetSocketAddress("127.0.0.1", 3000)
+  }
 
   val system = ActorSystem("netsnake")
   val server = system.actorOf(Sender.props(localAddress))
@@ -30,7 +37,7 @@ class GameServer(address: InetSocketAddress) extends Actor with ActorLogging {
 
   def receive = {
     case Udp.Bound(_) =>
-      log.info("Bound")
+      log.info(s"Bound to $address")
       context.become(ready(sender()))
   }
 
