@@ -9,17 +9,27 @@ class Engine < Gosu::Window
   HEAD_COLOR_OTHER = Gosu::Color::FUCHSIA
   TAIL_COLOR_OTHER = Gosu::Color::GRAY
   SCALING_FACTOR = 20
+  ARENA_WIDTH = 40
+  ARENA_HEIGHT = 40
 
-  def initialize(host, port = 3000)
+  attr_reader :ai
+
+  def initialize(host, port = 3000, ai_controlled = false)
     super 40 * SCALING_FACTOR, 40 * SCALING_FACTOR
-    self.caption = "Net snake Ruby"
+    @ai = if ai_controlled
+      require_relative 'ai'
+      AI::Controller.new
+    else
+      nil
+    end
+    self.caption = "Netsnake Ruby client"
     @font = Gosu::Font.new(25)
     @snake = []
     @score = 0
     @other_snakes = []
     @other_scores = []
-    @server_queue = SelectableQueue.new # holds state received from server; read by game
-    @input_queue = SelectableQueue.new # holds input to be sent to server; read by client
+    @server_queue = SelectableQueue.new # holds state received from server; read by Engine
+    @input_queue = SelectableQueue.new # holds input to be sent to server; read by UdpClient
 
     Thread.abort_on_exception = true
     @server_thread = Thread.new do
@@ -59,10 +69,23 @@ class Engine < Gosu::Window
 
   def update
     data = @server_queue.empty? ? nil : @server_queue.pop
-    @new_direction = read_input
-    if @new_direction && @input_queue.empty?
-      @input_queue << @new_direction
-      @new_direction = nil
+    new_direction = read_input
+    if new_direction == 'r'
+      @input_queue << new_direction
+      new_direction = nil
+    elsif ai && !@game_over
+      pos = @snake.first
+      if pos && pos[0] != @apple_x && pos[1] != @apple_y
+        obstacles = @snake[1..-1] | @other_snakes.flatten(1)
+        best_dir = ai.update(pos, [@apple_x, @apple_y], obstacles)
+        cmd = "m#{best_dir}" if best_dir && best_dir != @dir
+        @input_queue << cmd if cmd
+      end
+    else
+      if new_direction && @input_queue.empty?
+        @input_queue << new_direction
+        new_direction = nil
+      end
     end
     read_state(data) if data
   end
@@ -175,11 +198,3 @@ class Engine < Gosu::Window
     close
   end
 end
-
-# game = Game.new(ARGV.shift || "127.0.0.1")
-# Signal.trap("INT") do
-#   puts 'Terminating'
-#   game.finish
-# end
-# game.show
-# game.finish

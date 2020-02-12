@@ -41,8 +41,10 @@ ml      | Move snake left.
 On every game cycle, the server broadcasts the current game state to all connected players, in the following format:
 
 ```
-<player_index>_<num_players>$<appleX, appleY>$[<player_state>...]
+<payload_size>::<player_index>_<num_players>#<appleX, appleY>#[<player_state>...]
 ```
+
+The `payload_size` is a two bytes field whose value is the number of bytes following the `::` separator.
 
 There is one `<player_state>` per player in the match (format described further down), each separated by a `$` from each other. `<player_index>` is the index for the current player in the array of _player states_. Note that this is the only value that is different for each connected client.
 

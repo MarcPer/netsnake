@@ -8,11 +8,14 @@ class Game < Thor
   desc "start", "Connects to a game server and starts a match."
   method_option :host, aliases: "-h", desc: "Host where game server is running", default: "127.0.0.1", type: :string
   method_option :port, aliases: "-p", desc: "Port where game server is running", default: 3000, type: :numeric
+  method_option :controller, aliases: "-c", desc: "Controller: human (h) or AI (a)", default: "h", type: :string
   def start
     remote = options[:host]
     port = options[:port]
+    controller = options[:controller]
+    raise ArgumentError.new("Controller needs to be 'h' or 'a'") unless %w(h a).include?(controller)
     puts "Connecting to #{remote}:#{port}"
-    engine = Engine.new(remote, port)
+    engine = Engine.new(remote, port, controller == 'a')
     Signal.trap("INT") do
       puts 'Terminating'
       engine.finish

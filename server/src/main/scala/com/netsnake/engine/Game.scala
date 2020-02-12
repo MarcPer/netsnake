@@ -14,10 +14,6 @@ object Game {
 object GameOutput {
   case class GameState(playerStates: Map[InetSocketAddress, PlayerState], apple: Point)
   case class PlayerState(var score: Int, snake: Snake, var state: SnakeState)
-  def initialPlayerState(state: SnakeState): PlayerState = {
-    val initSnake = Snake(Point(20, 20) :: Point(21, 20) :: Point(22, 20) :: Point(23, 20) :: Point(24, 20) :: Point(25, 20) :: Nil, Left, 0)
-    PlayerState(0, initSnake, state)
-  }
   def initialGameState: GameState = GameState(Map(), Point(0,0))
 }
 
@@ -100,7 +96,10 @@ class Game extends Actor with ActorLogging {
   def receive = inactive
 
   def cycleGame: Unit = {
-    for { p <- quitPlayers } { players -= p}
+    for { p <- quitPlayers } {
+      players -= p
+      quitPlayers = quitPlayers - p
+    }
     for { p <- players.values } move(p)
     for { p <- collidedPlayers(players) } killPlayer(p)
     for { p <- outOfBoundsPlayers(players) } killPlayer(p)
@@ -113,13 +112,15 @@ class Game extends Actor with ActorLogging {
       self ! GameOver
     else {
       broadcastState
-      Thread.sleep(200)
+      Thread.sleep(100)
       self ! Cycle
     }
   }
 
-  def addPlayer(id: InetSocketAddress, players: Map[InetSocketAddress, PlayerState], state: SnakeState) =
-    players + (id -> GameOutput.initialPlayerState(state))
+  def addPlayer(id: InetSocketAddress, players: Map[InetSocketAddress, PlayerState], state: SnakeState) = initialPlayerState(state) match {
+    case Some(playerState) => players + (id -> playerState)
+    case _ => players
+  }
 
   def quitPlayer(id: InetSocketAddress) = {
     quitPlayers = quitPlayers + id
@@ -165,17 +166,43 @@ class Game extends Actor with ActorLogging {
   }
 
   def newApple: Point = {
-    val filledPositions = for {
-      player <- players
-      pos <- player._2.snake.pos
-    } yield pos
-
-    applePos(filledPositions.toSet, new Random())
+    applePos(filledPositions, new Random())
   }
+
+  def filledPositions: Set[Point] = (for {
+    player <- players
+    pos <- player._2.snake.pos
+  } yield pos).toSet
 
   def applePos(pos: Set[Point], random: Random) : Point = {
     val p = Point(random.nextInt(width), random.nextInt(height))
     if (pos(p)) applePos(pos, random) else p
+  }
+
+  def initialPlayerState(state: SnakeState): Option[PlayerState] = for {
+    snake <- initSnake(players.size, 5)
+  } yield PlayerState(0, snake, state)
+
+  def initSnake(variant: Int, attempts: Int) : Option[Snake] = {
+    if (attempts <= 0) None
+    else {
+      val new_variant = variant % 4
+      val snake = new_variant match {
+        case 1 =>
+          Snake(Point(30, 12) :: Point(30, 11) :: Point(30, 10) :: Point(30, 9) :: Point(30, 8) :: Point(30, 7) :: Nil, Down, 0)
+        case 2 =>
+          Snake(Point(7, 30) :: Point(7, 31) :: Point(7, 32) :: Point(7, 33) :: Point(7, 34) :: Point(7, 35) :: Nil, Up, 0)
+        case 3 =>
+          Snake(Point(17, 33) :: Point(16, 33) :: Point(15, 33) :: Point(14, 33) :: Point(13, 33) :: Point(12, 33) :: Nil, Right, 0)
+        case _ =>
+          Snake(Point(20, 18) :: Point(21, 18) :: Point(22, 18) :: Point(23, 18) :: Point(24, 18) :: Point(25, 18) :: Nil, Left, 0)
+      }
+      if (checkSnakeCollision(snake)) initSnake(new_variant + 1, attempts - 1) else Some(snake)
+    }
+  }
+
+  def checkSnakeCollision(snake: Snake): Boolean = snake.pos.foldLeft(false) {
+    (col, pos) => col || filledPositions(pos)
   }
 
   def move(state: GameOutput.PlayerState) = {

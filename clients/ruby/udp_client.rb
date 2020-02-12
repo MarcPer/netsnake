@@ -27,7 +27,7 @@ class UdpClient
       elsif reader == @socket
         begin
           data = @socket.recvfrom_nonblock(300)&.[](0)
-          @server_queue << data
+          @server_queue << data[3..-1]
         rescue IO::WaitReadable
           IO.select([@socket], [])
           retry

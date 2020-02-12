@@ -13,10 +13,7 @@ object GameServer extends App {
   val interfaceName = "wlo1"
   val networkInterface = NetworkInterface.getByName(interfaceName)
   val inetAddresses = networkInterface.getInetAddresses()
-  val localAddress = inetAddresses.asScala.find(_.isSiteLocalAddress).map(_.getHostAddress) match {
-    case Some(addr) => new InetSocketAddress(addr, 3000)
-    case _ => new InetSocketAddress("127.0.0.1", 3000)
-  }
+  val localAddress = new InetSocketAddress("0.0.0.0", 3000) // Bind to all interfaces
 
   val system = ActorSystem("netsnake")
   val server = system.actorOf(Sender.props(localAddress))
@@ -70,7 +67,10 @@ class GameServer(address: InetSocketAddress) extends Actor with ActorLogging {
       val (remotes, state) = ServerResponse.fromGameOutput(s)
       for {
         (remote, idx) <- remotes
-      } client ! Udp.Send(ByteString(s"${idx}_${state}"), remote)
+      } {
+        val payload = s"${idx}_${state}"
+        client ! Udp.Send(ByteString(s"${payload.length}::${payload}"), remote)
+      }
   }
 }
 
