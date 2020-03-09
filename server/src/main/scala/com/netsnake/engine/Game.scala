@@ -25,7 +25,7 @@ final case class Point(x: Int, y: Int) {
 
 object GameInput {
   trait GameCommand
-  case object Cycle
+  case class Cycle(updateState: Boolean)
   case object GameOver
   case class MoveCommand(playerId: InetSocketAddress, dir: Direction) extends GameCommand
   case object Invalid extends GameCommand
@@ -59,7 +59,7 @@ class Game extends Actor with ActorLogging {
   private var apple: Option[Point] = Some(newApple)
 
   def active: Receive = {
-    case Cycle => cycleGame
+    case Cycle(updateState) => cycleGame(updateState)
     case Join(playerId) if (!players.contains(playerId)) =>
       players = addPlayer(playerId, players, Running)
       log.info(s"Num. players: ${players.size}")
@@ -90,17 +90,19 @@ class Game extends Actor with ActorLogging {
       }
       log.info(s"Num. players: ${players.size}")
       context.become(active)
-      self ! Cycle
+      self ! Cycle(true)
   }
 
   def receive = inactive
 
-  def cycleGame: Unit = {
+  def cycleGame(updateState: Boolean): Unit = {
     for { p <- quitPlayers } {
       players -= p
       quitPlayers = quitPlayers - p
     }
-    for { p <- players.values } move(p)
+    if (updateState) {
+      for { p <- players.values } move(p)
+    }
     for { p <- collidedPlayers(players) } killPlayer(p)
     for { p <- outOfBoundsPlayers(players) } killPlayer(p)
     apple match {
@@ -112,8 +114,8 @@ class Game extends Actor with ActorLogging {
       self ! GameOver
     else {
       broadcastState
-      Thread.sleep(100)
-      self ! Cycle
+      Thread.sleep(50)
+      self ! Cycle(!updateState)
     }
   }
 

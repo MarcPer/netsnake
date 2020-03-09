@@ -8,13 +8,14 @@ class Engine < Gosu::Window
   TAIL_COLOR = Gosu::Color::BLUE
   HEAD_COLOR_OTHER = Gosu::Color::FUCHSIA
   TAIL_COLOR_OTHER = Gosu::Color::GRAY
+  AI_PLAN_COLOR = Gosu::Color::YELLOW
   SCALING_FACTOR = 20
   ARENA_WIDTH = 40
   ARENA_HEIGHT = 40
 
-  attr_reader :ai
+  attr_reader :ai, :debug_mode
 
-  def initialize(host, port = 3000, ai_controlled = false)
+  def initialize(host, port = 3000, ai_controlled = false, debug_mode: false)
     super 40 * SCALING_FACTOR, 40 * SCALING_FACTOR
     @ai = if ai_controlled
       require_relative 'ai'
@@ -22,6 +23,7 @@ class Engine < Gosu::Window
     else
       nil
     end
+    @debug_mode = debug_mode
     self.caption = "Netsnake Ruby client"
     @font = Gosu::Font.new(25)
     @snake = []
@@ -37,7 +39,7 @@ class Engine < Gosu::Window
       client.start
     end
   rescue
-    cleanup
+    finish
     raise
   end
 
@@ -50,9 +52,28 @@ class Engine < Gosu::Window
     @other_scores.each_with_index do |score, idx|
       @font.draw_text("Score: #{@score}", 10, 10 + idx, 1, 1.0, 1.0, Gosu::Color::YELLOW)
     end
+    draw_ai_plan if debug_mode
     draw_snake(@snake, true)
     @other_snakes.each { |s| draw_snake(s, false) }
     draw_apple
+  end
+
+  def draw_ai_plan
+    return unless @final_node
+    curr_node = @final_node
+    count = 1000
+    while(curr_node&.prev_node && count > 0)
+      count -= 1
+      x = curr_node.x
+      y = curr_node.y
+      Gosu.draw_quad(
+        x * SCALING_FACTOR, y * SCALING_FACTOR, AI_PLAN_COLOR,
+        (x + 1) * SCALING_FACTOR, y * SCALING_FACTOR, AI_PLAN_COLOR,
+        (x + 1) * SCALING_FACTOR, (y + 1) * SCALING_FACTOR, AI_PLAN_COLOR,
+        x * SCALING_FACTOR, (y + 1) * SCALING_FACTOR, AI_PLAN_COLOR
+      )
+      curr_node = curr_node.prev_node
+    end
   end
 
   def draw_snake(snake, curr_player)
@@ -73,21 +94,25 @@ class Engine < Gosu::Window
     if new_direction == 'r'
       @input_queue << new_direction
       new_direction = nil
-    elsif ai && !@game_over
+    elsif ai && !@game_over && data
       pos = @snake.first
-      if pos && pos[0] != @apple_x && pos[1] != @apple_y
+      if pos && (pos[0] != @apple_x || pos[1] != @apple_y)
         obstacles = @snake[1..-1] | @other_snakes.flatten(1)
-        best_dir = ai.update(pos, [@apple_x, @apple_y], obstacles)
-        cmd = "m#{best_dir}" if best_dir && best_dir != @dir
+        best_dir, @final_node, safe_dir = ai.update(pos, @dir.downcase, [@apple_x, @apple_y], obstacles)
+        cmd = "m#{best_dir}" if best_dir && best_dir != @dir.downcase
         @input_queue << cmd if cmd
+        @input_queue << "m#{safe_dir}" if safe_dir
       end
     else
-      if new_direction && @input_queue.empty?
+      if new_direction
         @input_queue << new_direction
         new_direction = nil
       end
     end
     read_state(data) if data
+  rescue
+    finish
+    raise
   end
 
   def draw_snake_segment(x, y, kind = :tail)
@@ -117,7 +142,8 @@ class Engine < Gosu::Window
   end
 
   def read_state(data)
-    state = data.split('#')
+    payload_size, payload = data.split(':')
+    state = payload.split('#')
     @other_snakes = []
     curr_player, num_players = state.shift.split('_').map(&:to_i)
     @apple_x, @apple_y = state.shift.split(',').map(&:to_i)

@@ -1,12 +1,17 @@
 # frozen_string_literal: true
 
 class UdpClient
+  attr_reader :server_addr, :server_port
   def initialize(server_queue, input_queue, server_addr, server_port)
     @server_queue = server_queue
     @input_queue = input_queue
+    @server_addr = server_addr
+    @server_port = server_port
     @socket = UDPSocket.new
-    @socket.connect(server_addr, server_port)
-    @socket.send('s', 0)
+    source_port = 1300 + rand(500)
+    @socket.bind('127.0.0.1', source_port)
+    puts "Bound to 127.0.0.1:#{source_port}"
+    @socket.send('s', 0, server_addr, server_port)
     @stop = false
   end
 
@@ -22,11 +27,11 @@ class UdpClient
     readers.each do |reader|
       if reader == @input_queue
         command = @input_queue.pop
-        @socket.send(command, 0)
+        @socket.send(command, 0, server_addr, server_port)
         @stop = command == 'q'
       elsif reader == @socket
         begin
-          data = @socket.recvfrom_nonblock(300)&.[](0)
+          data = @socket.recvfrom_nonblock(1000)&.[](0)
           @server_queue << data[3..-1]
         rescue IO::WaitReadable
           IO.select([@socket], [])
