@@ -103,11 +103,9 @@ class Engine < Gosu::Window
         @input_queue << cmd if cmd
         @input_queue << "m#{safe_dir}" if safe_dir
       end
-    else
-      if new_direction
-        @input_queue << new_direction
-        new_direction = nil
-      end
+    elsif new_direction && @input_queue.empty?
+      @input_queue << new_direction
+      new_direction = nil
     end
     read_state(data) if data
   rescue
@@ -142,7 +140,7 @@ class Engine < Gosu::Window
   end
 
   def read_state(data)
-    payload_size, payload = data.split(':')
+    payload_size, payload = data.split('::')
     state = payload.split('#')
     @other_snakes = []
     curr_player, num_players = state.shift.split('_').map(&:to_i)
