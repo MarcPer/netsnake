@@ -9,8 +9,8 @@ class UdpClient
     @server_port = server_port
     @socket = UDPSocket.new
     source_port = 1300 + rand(500)
-    @socket.bind('127.0.0.1', source_port)
-    puts "Bound to 127.0.0.1:#{source_port}"
+    @socket.bind(server_addr, source_port)
+    puts "Bound to #{server_addr}:#{source_port}"
     @socket.send('s', 0, server_addr, server_port)
     @stop = false
   end
