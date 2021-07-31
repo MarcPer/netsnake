@@ -14,6 +14,7 @@ class UdpClient:
       self.sock.connect((self.UDP_IP, self.UDP_PORT))
       self.cmd_buffer = cmd_buffer
       self.state_buffer = state_buffer
+      self.last_data = None
 
   def start(self):
       self.sock.send(b's')
@@ -29,7 +30,9 @@ class UdpClient:
               elif s is self.sock:
                   try:
                     data, _ = s.recvfrom(1024) # buffer size is 1024 bytes
-                    self.state_buffer.put(data)
+                    if self.state_buffer.empty() and data != self.last_data:
+                      self.state_buffer.put(data)
+                      self.last_data = data
                   except:
                     done = True
 

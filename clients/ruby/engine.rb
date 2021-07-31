@@ -9,14 +9,14 @@ class Engine < Gosu::Window
   HEAD_COLOR_OTHER = Gosu::Color::FUCHSIA
   TAIL_COLOR_OTHER = Gosu::Color::GRAY
   AI_PLAN_COLOR = Gosu::Color::YELLOW
-  SCALING_FACTOR = 20
-  ARENA_WIDTH = 40
-  ARENA_HEIGHT = 40
+  SCALING_FACTOR = 40
+  ARENA_WIDTH = 20
+  ARENA_HEIGHT = 20
 
   attr_reader :ai, :debug_mode
 
   def initialize(host, port = 3000, ai_controlled = false, debug_mode: false)
-    super 40 * SCALING_FACTOR, 40 * SCALING_FACTOR
+    super ARENA_WIDTH * SCALING_FACTOR, ARENA_HEIGHT * SCALING_FACTOR
     @ai = if ai_controlled
       require_relative 'ai'
       AI::Controller.new

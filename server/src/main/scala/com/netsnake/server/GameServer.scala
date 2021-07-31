@@ -49,12 +49,13 @@ class GameServer(address: InetSocketAddress) extends Actor with ActorLogging {
           game ! start
         case join: Join =>
           game ! join
+        case spectate: Spectate =>
+          game ! spectate
         case quit: Quit =>
           game ! quit
         case restart: Restart =>
           game ! restart
         case mcmd: MoveCommand =>
-          log.info("Move command received")
           game ! mcmd
         case _ =>
           log.info("Invalid command received")
@@ -80,6 +81,7 @@ object ServerCommand {
   def fromMessage(msg: String, remote: InetSocketAddress): GameCommand = msg match {
     case "s" => Start(remote)
     case "j" => Join(remote)
+    case "x" => Spectate(remote)
     case "q" => Quit(remote)
     case "r" => Restart(remote)
     case "mu" => MoveCommand(remote, Up)

@@ -25,13 +25,14 @@ final case class Point(x: Int, y: Int) {
 
 object GameInput {
   trait GameCommand
-  case class Cycle(updateState: Boolean)
+  case class Cycle(updateState: Boolean, appleTTL: Int)
   case object GameOver
   case class MoveCommand(playerId: InetSocketAddress, dir: Direction) extends GameCommand
   case object Invalid extends GameCommand
   case class Start(playerId: InetSocketAddress) extends GameCommand
   case class Restart(playerId: InetSocketAddress) extends GameCommand
   case class Join(playerId: InetSocketAddress) extends GameCommand
+  case class Spectate(playerId: InetSocketAddress) extends GameCommand
   case class Quit(playerId: InetSocketAddress) extends GameCommand
 }
 
@@ -47,26 +48,32 @@ case object Left extends LeftRight
 case class Snake(var pos: List[Point], var direction: Direction, var grow: Int)
 trait SnakeState
 case object Waiting extends SnakeState
+case object Spectating extends SnakeState
 case object Running extends SnakeState
 case object Dead extends SnakeState
 
 class Game extends Actor with ActorLogging {
-  val height = 40
-  val width = 40
+  val height = 20
+  val width = 20
+  val appleStartTTL = 300
   import GameInput._
   private var players = Map[InetSocketAddress, PlayerState]() // Maps remote address to index in snakes and scores Lists
   private var quitPlayers = Set[InetSocketAddress]()
   private var apple: Option[Point] = Some(newApple)
 
   def active: Receive = {
-    case Cycle(updateState) => cycleGame(updateState)
+    case Cycle(updateState, appleTTL) => cycleGame(updateState, appleTTL)
     case Join(playerId) if (!players.contains(playerId)) =>
       players = addPlayer(playerId, players, Running)
+      log.info(s"Num. players: ${players.size}")
+    case Spectate(playerId) if (!players.contains(playerId)) =>
+      players = addPlayer(playerId, players, Spectating)
       log.info(s"Num. players: ${players.size}")
     case Start(playerId) if (!players.contains(playerId)) =>
       players = addPlayer(playerId, players, Running)
       log.info(s"Num. players: ${players.size}")
     case Restart(playerId) if (players.contains(playerId) && players(playerId).state == Dead) =>
+      apple = None
       players -= playerId
       players = addPlayer(playerId, players, Running)
     case Quit(playerId) if (players.contains(playerId)) =>
@@ -79,6 +86,9 @@ class Game extends Actor with ActorLogging {
   }
 
   def inactive: Receive = {
+    case Spectate(playerId) if (!players.contains(playerId)) =>
+      players = addPlayer(playerId, players, Spectating)
+      log.info(s"Num. players: ${players.size}")
     case Join(playerId) =>
       players = addPlayer(playerId, players, Waiting)
       log.info(s"Num. players: ${players.size}")
@@ -90,23 +100,29 @@ class Game extends Actor with ActorLogging {
       }
       log.info(s"Num. players: ${players.size}")
       context.become(active)
-      self ! Cycle(true)
+      self ! Cycle(true, appleStartTTL)
   }
 
   def receive = inactive
 
-  def cycleGame(updateState: Boolean): Unit = {
+  def cycleGame(updateState: Boolean, appleTTL: Int): Unit = {
     for { p <- quitPlayers } {
       players -= p
       quitPlayers = quitPlayers - p
     }
+    var newAppleTTL = appleTTL - 1
     if (updateState) {
       for { p <- players.values } move(p)
+      if (newAppleTTL < 0)
+        apple = None
     }
     for { p <- collidedPlayers(players) } killPlayer(p)
     for { p <- outOfBoundsPlayers(players) } killPlayer(p)
     apple match {
-      case None => apple = Some(newApple)
+      case None => {
+        newAppleTTL = appleStartTTL
+        apple = Some(newApple)
+      }
       case _ =>
     }
 
@@ -114,8 +130,11 @@ class Game extends Actor with ActorLogging {
       self ! GameOver
     else {
       broadcastState
+      // Thread.sleep(50)
+      // self ! Cycle(!updateState, newAppleTTL)
+      // Thread.sleep(100)
       Thread.sleep(50)
-      self ! Cycle(!updateState)
+      self ! Cycle(true, newAppleTTL)
     }
   }
 
@@ -191,13 +210,13 @@ class Game extends Actor with ActorLogging {
       val new_variant = variant % 4
       val snake = new_variant match {
         case 1 =>
-          Snake(Point(30, 12) :: Point(30, 11) :: Point(30, 10) :: Point(30, 9) :: Point(30, 8) :: Point(30, 7) :: Nil, Down, 0)
+          Snake(Point(12, 12) :: Point(12, 11) :: Point(12, 10) :: Point(12, 9) :: Point(12, 8) :: Point(12, 7) :: Nil, Down, 0)
         case 2 =>
           Snake(Point(7, 30) :: Point(7, 31) :: Point(7, 32) :: Point(7, 33) :: Point(7, 34) :: Point(7, 35) :: Nil, Up, 0)
         case 3 =>
           Snake(Point(17, 33) :: Point(16, 33) :: Point(15, 33) :: Point(14, 33) :: Point(13, 33) :: Point(12, 33) :: Nil, Right, 0)
         case _ =>
-          Snake(Point(20, 18) :: Point(21, 18) :: Point(22, 18) :: Point(23, 18) :: Point(24, 18) :: Point(25, 18) :: Nil, Left, 0)
+          Snake(Point(5, 18) :: Point(6, 18) :: Point(7, 18) :: Point(8, 18) :: Point(9, 18) :: Point(10, 18) :: Nil, Left, 0)
       }
       if (checkSnakeCollision(snake)) initSnake(new_variant + 1, attempts - 1) else Some(snake)
     }
@@ -208,7 +227,7 @@ class Game extends Actor with ActorLogging {
   }
 
   def move(state: GameOutput.PlayerState) = {
-    if (state.state == Dead) state.snake.pos
+    if (state.state != Running) state.snake.pos
     else {
       val newPos = state.snake.direction match {
         case Up => Point(0, -1) + state.snake.pos.head
